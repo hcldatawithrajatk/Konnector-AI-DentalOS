@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  dentalos-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: konnector-ai-dentalos
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+    depends_on:
+      - dentalos-redis
+
+  dentalos-redis:
+    image: redis:7-alpine
+    container_name: konnector-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
+    driver: local
