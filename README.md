@@ -119,9 +119,13 @@ The application will be live at `http://localhost:3000`.
 
 ---
 
-### Option 3: Google Cloud Platform (Cloud Run & Cloud Build)
+### Option 3: Google Cloud Platform (Full Enterprise Cloud Deployment)
 
-Deploy to Google Cloud Run with autoscaling (1 to 20 instances):
+For complete enterprise infrastructure provisioning (Cloud Run, Cloud SQL PostgreSQL HA, Memorystore Redis, Serverless VPC Access, Vertex AI Vector Search, Cloud Load Balancer, Cloud Armor WAF, and HIPAA compliance), refer to the dedicated deployment guide:
+
+👉 **[Complete GCP Deployment Guide & Architecture (`GCP_DEPLOYMENT_GUIDE.md`)](./GCP_DEPLOYMENT_GUIDE.md)**
+
+Quick build and deploy to Google Cloud Run with autoscaling (1 to 20 instances):
 
 ```bash
 # Submit build to Cloud Build and deploy to Cloud Run
