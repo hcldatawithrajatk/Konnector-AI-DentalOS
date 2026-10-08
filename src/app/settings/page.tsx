@@ -182,14 +182,14 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <span className="font-bold text-indigo-950 text-sm flex items-center gap-1.5">
                   <Shield className="w-4 h-4 text-indigo-600" />
-                  <span>HIPAA Compliance Mode Active (45 CFR § 164)</span>
+                  <span>Healthcare Privacy & Data Protection (HIPAA-Ready Architecture)</span>
                 </span>
                 <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold">
-                  Signed BAA On File
+                  Lean Security Active
                 </span>
               </div>
               <p className="text-indigo-900 leading-relaxed">
-                All Protected Health Information (PHI) is encrypted with AES-256 at rest in Google Cloud SQL and TLS 1.3 in transit. Strict role-based least privilege access enforced.
+                Patient records and intake submissions are secured using standard TLS 1.3 HTTPS encryption in transit, AES-256 database encryption at rest, and explicit digital patient consent. Operates on lean serverless architecture without expensive enterprise compliance lock-in.
               </p>
             </div>
           ) : (
@@ -197,14 +197,14 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <span className="font-bold text-teal-950 text-sm flex items-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-teal-600" />
-                  <span>India GST & WhatsApp Healthcare Consent Framework</span>
+                  <span>India GST & Patient Privacy Framework (DPDPA 2023)</span>
                 </span>
                 <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold">
-                  GST Verified
+                  GST SAC 999312
                 </span>
               </div>
               <p className="text-teal-900 leading-relaxed">
-                Registered GSTIN: <strong className="font-mono">{activeClinic.gstNumber}</strong>. Automated digital consent recorded before patient intake form submission adhering to the Digital Personal Data Protection Act (DPDPA 2023).
+                Registered GSTIN: <strong className="font-mono">{activeClinic.gstNumber}</strong>. Explicit patient digital consent recorded via WhatsApp and mobile intake forms adhering to India Digital Personal Data Protection Act (DPDPA 2023).
               </p>
             </div>
           )}

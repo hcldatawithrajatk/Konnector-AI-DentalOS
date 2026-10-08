@@ -32,13 +32,13 @@ steps:
       - '--port'
       - '3000'
       - '--min-instances'
-      - '1'
+      - '0'
       - '--max-instances'
-      - '20'
+      - '5'
       - '--memory'
-      - '2Gi'
+      - '1Gi'
       - '--cpu'
-      - '2'
+      - '1'
 
 images:
   - 'gcr.io/$PROJECT_ID/konnector-ai-dentalos:$COMMIT_SHA'

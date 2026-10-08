@@ -1,459 +1,187 @@
-# Konnector AI DentalOS — Enterprise GCP Deployment Guide
+# Konnector AI DentalOS — GCP Cloud Deployment Guide (Lean MVP & Enterprise)
 
-This document provides the complete, production-grade engineering architecture and step-by-step deployment playbook for deploying **Konnector AI DentalOS** directly onto Google Cloud Platform (GCP).
+This guide documents the **Minimum-Cost Lean MVP Architecture** designed specifically to host **10 to 100 dental practices at \$5 – \$25 / month**, alongside the BigQuery vs PostgreSQL analysis and the future enterprise scaling path.
 
 ---
 
-## 🏗️ 1. End-to-End GCP Cloud Architecture
+## 💰 1. Lean MVP Architecture (10 to 100 Clinics: \$5 – \$25 / Month)
+
+To launch an initial MVP without incurring massive cloud bills before achieving product-market fit, all expensive enterprise overhead (Load Balancers, VPC Connectors, dedicated Redis VMs, and standalone Vector Search endpoints) has been eliminated in favor of high-performance serverless components:
 
 ```mermaid
 flowchart TD
-    subgraph Users["End Users & Omnichannel Clients"]
-        Admin["Dental Practice Staff & Chains\n(Web Admin Dashboard)"]
-        Patient["Patients & Walk-ins\n(Mobile Portals: Hub, Review, Pay, Intake)"]
-        WhatsApp["Meta WhatsApp Cloud API\n(Inbound Webhooks & HSM Replies)"]
+    subgraph Clients["Omnichannel Access"]
+        Staff["Clinic Staff Dashboard\n(Desktop & Tablet Web)"]
+        Patient["Patients & Walk-ins\n(Mobile Portals: Intake, Pay, Review)"]
+        WhatsApp["Meta WhatsApp Cloud API\n(Inbound / Outbound Webhooks)"]
     end
 
-    subgraph EdgeTier["Google Cloud Edge & Ingress Tier"]
-        CloudDNS["Cloud DNS\n(care.konnectordental.app)"]
-        CloudArmor["Cloud Armor\n(WAF, DDoS Protection, Rate Limiting)"]
-        LoadBalancer["Global External HTTPS Load Balancer\n(Google-Managed Multi-Region SSL)"]
+    subgraph LeanGCP["Google Cloud Platform — Lean Serverless Tier"]
+        CloudRun["Cloud Run (Scale-to-Zero)\n• Next.js 14 App Router + Node.js 20\n• Min: 0 instances, Max: 5 instances\n• CPU: 1 vCPU, RAM: 1 GiB\n• CPU throttled when idle ($0 idle cost)\n• Free Tier: 2M requests/mo free\n• Cost: $0 - $5/mo"]
+        
+        CustomDomain["Cloud Run Custom Domain Mapping\n• care.konnectordental.app\n• Google-Managed Auto-Renewing SSL\n• Cost: $0/mo (Replaces $18/mo Load Balancer)"]
+        
+        SecretMgr["Secret Manager\n• Encrypted environment credentials\n• Free Tier: 6 secret versions free\n• Cost: $0/mo"]
+        
+        GCS["Cloud Storage (GCS)\n• Clinic logos & printable QR posters\n• Free Tier: 5 GB storage free\n• Cost: $0/mo"]
     end
 
-    subgraph ComputeTier["Serverless Compute Tier (Cloud Run)"]
-        CloudRun["Cloud Run: konnector-ai-dentalos\n• Next.js 14 App Router + Node.js 20\n• Autoscaling: 1 min - 20 max instances\n• CPU: 2 vCPU, RAM: 2 GiB\n• Direct VPC Egress enabled"]
-    end
-
-    subgraph VpcTier["Virtual Private Cloud (VPC) Networking"]
-        VPC["VPC Network (custom-dentalos-vpc)"]
-        VpcConnector["Serverless VPC Access Connector\n(dentalos-vpc-conn)"]
-    end
-
-    subgraph DataTier["Private Data & Caching Tier"]
-        CloudSQL[("Cloud SQL for PostgreSQL 15\n• Multi-Zone HA Failover\n• Row-Level Security (RLS)\n• Private IP only")]
-        Redis[("Memorystore for Redis 7\n• In-memory session cache\n• WhatsApp message queue buffer")]
-        CloudStorage[("Cloud Storage (GCS)\n• Encrypted Buckets (AES-256 / CMEK)\n• Clinic Logos, Clinical PDFs, Posters")]
-    end
-
-    subgraph AITier["Google Cloud AI & Vector Tier"]
-        VertexGemini["Vertex AI Gemini 2.5 Pro & Flash\n(Autonomous Dental Employee Reasoning)"]
-        VertexVector["Vertex AI Vector Search\n(Clinical RAG Index & Deployed Endpoint)"]
-    end
-
-    subgraph AsyncTier["Event-Driven Asynchronous Pipeline"]
-        PubSub["Cloud Pub/Sub\n(WhatsApp Inbound Events & Appointment Reminders)"]
-        CloudTasks["Cloud Tasks\n(48h / 24h / 2h Scheduled No-Show SMS/WhatsApp)"]
-    end
-
-    subgraph SecurityTier["Security, IAM & Healthcare Compliance"]
-        SecretMgr["Secret Manager\n(Stripe, Razorpay, WhatsApp, DB credentials)"]
-        AuditLogs["Cloud Audit Logs & Cloud Logging\n(Immutable HIPAA & DPDPA Audit Trails)"]
-        CloudKMS["Cloud KMS\n(Customer-Managed Encryption Keys)"]
+    subgraph DataAI["Lean Data & AI Tier (Zero Fixed Overhead)"]
+        DB[("Serverless PostgreSQL (Neon / Supabase)\nor Cloud SQL Micro (db-f1-micro)\n• 0.5 GB to 10 GB storage\n• Embedded pgvector for clinical RAG\n• Replaces $45/mo Vertex Index\n• Cost: $0 - $12/mo")]
+        
+        Cache[("In-Memory LRU Cache / Upstash Serverless Redis\n• Rate-limiting & session cache\n• Free Tier: 10,000 commands/day\n• Replaces $35/mo Memorystore VM\n• Cost: $0/mo")]
+        
+        Gemini["Google Gemini 2.5 Flash API\n• Aria, Vikram, Maya, Marcus reasoning\n• Pay-per-token: $0.075 / 1M input tokens\n• Cost: $2 - $5/mo"]
     end
 
     %% Connections
-    Admin --> CloudDNS
-    Patient --> CloudDNS
-    WhatsApp --> CloudDNS
+    Staff --> CustomDomain
+    Patient --> CustomDomain
+    WhatsApp --> CustomDomain
 
-    CloudDNS --> LoadBalancer
-    LoadBalancer --> CloudArmor
-    CloudArmor --> CloudRun
-
-    CloudRun --> VpcConnector
-    VpcConnector --> VPC
-    VPC --> CloudSQL
-    VPC --> Redis
-
-    CloudRun --> CloudStorage
-    CloudRun --> VertexGemini
-    CloudRun --> VertexVector
-    CloudRun --> PubSub
-    CloudRun --> CloudTasks
-
+    CustomDomain --> CloudRun
+    CloudRun --> DB
+    CloudRun --> Cache
+    CloudRun --> Gemini
     CloudRun --> SecretMgr
-    CloudRun --> AuditLogs
-    CloudSQL --> CloudKMS
-    CloudStorage --> CloudKMS
+    CloudRun --> GCS
 ```
 
----
+### 💵 Lean MVP Monthly Cost Breakdown (10 to 100 Clinics)
 
-## 📋 2. GCP Bill of Materials (Services Utilized)
-
-| Service | GCP Component | Purpose | Sizing / Tier |
-| :--- | :--- | :--- | :--- |
-| **Compute** | **Cloud Run** (Fully Managed) | Hosts containerized Next.js frontend and API services | Autoscaling 1 to 20 instances, 2 vCPU, 2 GiB RAM |
-| **Ingress** | **Cloud Load Balancing** | Anycast Global HTTPS Load Balancer | Google-Managed SSL Certificate |
-| **Firewall** | **Cloud Armor** | Web Application Firewall (WAF) & OWASP Top 10 mitigation | Standard / Managed Protection |
-| **Database** | **Cloud SQL for PostgreSQL** | Primary relational DB with Row-Level Security (RLS) | `db-custom-2-7680` (2 vCPU, 7.5 GB RAM), High Availability |
-| **Cache** | **Memorystore for Redis** | Session store, rate limiting, and WhatsApp message queue | Basic Tier, 1 GB to 5 GB |
-| **Vector DB** | **Vertex AI Vector Search** | Embeddings storage & approximate nearest neighbor search | Scaled Index Endpoint with public/private peering |
-| **Generative AI** | **Vertex AI Gemini 2.5** | Multi-modal reasoning for Aria, Vikram, Maya, Marcus | `gemini-2.5-pro` & `gemini-2.5-flash` |
-| **Storage** | **Cloud Storage (GCS)** | Documents, treatment plans, clinical brochures, QR posters | Dual-region or Multi-region bucket with CMEK |
-| **Queue / Async** | **Cloud Pub/Sub** | Ingestion pipeline for WhatsApp webhooks | Asynchronous decoupled event processing |
-| **Secrets** | **Secret Manager** | Hardware-secured credential storage | Encrypted with auto-versioning |
-| **CI/CD** | **Cloud Build & Artifact Registry** | Container image builder and Docker registry | Standard Cloud Build runners |
-| **Compliance** | **Cloud Audit Logs & KMS** | Immutable access logs for HIPAA / India DPDPA compliance | AES-256 encryption at rest and in transit |
+| Service | Lean MVP Configuration | Monthly Cost | Enterprise Equivalent |
+| :--- | :--- | :---: | :---: |
+| **Compute** | **Cloud Run** (0 min instances, 1 vCPU, 1 GiB RAM, CPU allocated during requests) | **\$0 – \$5** | ~\$35/mo |
+| **Database** | **Serverless PostgreSQL (Neon / Supabase)** with `pgvector` or **Cloud SQL Micro** | **\$0 – \$12** | ~\$145/mo |
+| **Vector DB** | **`pgvector` inside PostgreSQL** (Eliminates dedicated Vector Endpoint) | **\$0** | ~\$45/mo |
+| **Cache & Queue** | **In-memory cache** or **Upstash Serverless Redis** (10,000 commands/day free) | **\$0** | ~\$35/mo |
+| **Ingress & SSL** | **Cloud Run Direct Custom Domain Mapping** (Free Google-managed SSL) | **\$0** | ~\$18/mo (LB) |
+| **VPC Connector** | **Direct HTTPS / SSL Peering** (Eliminates Serverless VPC Connector) | **\$0** | ~\$14/mo |
+| **AI Reasoning** | **Google Gemini 2.5 Flash** (via Google AI Studio or Vertex API pay-as-you-go) | **\$2 – \$6** | ~\$25/mo |
+| **Compliance** | **Standard TLS 1.3 + AES-256 + DPDPA/HIPAA-ready digital consent** | **\$0** | ~\$50/mo (BAA/KMS) |
+| **Total Monthly Bill** | **Full-fledged SaaS supporting 10 to 100 clinics** | **~\$5 – \$25 / mo** | **~\$367 / mo** |
 
 ---
 
-## 🛠️ 3. Step-by-Step GCP Deployment Playbook
+## 🔍 2. Architectural Analysis: Can We Use BigQuery (BQ) in Place of PostgreSQL?
 
-### Step 1: GCP Project Initialization & CLI Authentication
+A common question when optimizing GCP costs is: *Can we replace PostgreSQL with BigQuery since BigQuery has a generous free tier (10 GB storage and 1 TB queries free per month)?*
 
+### Detailed Technical Verdict: **NO — BigQuery Cannot Replace PostgreSQL as the Primary Application Database.**
+
+Here is the exact engineering breakdown why:
+
+### 1. Latency Profile (The User Experience Killer)
+- **PostgreSQL / Cloud SQL / Neon:** **5ms – 25ms** per query.
+- **BigQuery:** **1,000ms – 3,500ms** (1 to 3.5 seconds) per query.
+- **Impact on DentalOS:** BigQuery is an OLAP (Online Analytical Processing) columnar engine designed for big data scans across millions of rows. It spends 1 to 2 seconds just provisioning distributed compute worker slots before executing a query. In an interactive web application:
+  - Loading an appointment schedule would take 3+ seconds.
+  - WhatsApp webhooks (which require a fast `200 OK` response under 5 seconds) would experience timeouts and message delivery drops.
+
+### 2. High-Frequency Single-Row Updates & Deletes (Mutations)
+- Web apps frequently mutate single rows: e.g. marking an appointment `confirmed`, dragging a CRM lead to `Accepted`, updating patient intake notes, or incrementing an invoice balance.
+- BigQuery enforces strict rate limits on `UPDATE`, `DELETE`, and `MERGE` statements per table per day. Mutating individual rows creates metadata churn in BigQuery and frequently throws concurrency quota errors.
+
+### 3. ACID Transactions & Row-Level Locking
+- When two patients attempt to book the same dentist operatory chair at 10:00 AM simultaneously, PostgreSQL uses row-level locking (`SELECT FOR UPDATE`) to prevent double-booking.
+- BigQuery does not support transactional row-level locking for interactive concurrent web users.
+
+### 4. Vector Search (`pgvector`)
+- PostgreSQL supports the native `pgvector` extension, allowing you to store embeddings and run semantic similarity searches for your Clinical RAG Knowledge Base in the **same database at \$0 extra cost**.
+- BigQuery requires complex Vector Search setups that incur additional per-query scanning fees.
+
+### 🎯 The Recommended Approach:
+- **Use Serverless PostgreSQL (Neon / Supabase)** or **Cloud SQL Micro** for your live operational web app ($0 – $12/mo).
+- **Use BigQuery as a Read-Only Analytics Sink**: Once a night, stream or export your daily appointment and revenue numbers into BigQuery for long-term clinical analytics and reporting (**100% free under BigQuery's 1 TB/month tier**).
+
+---
+
+## 🚀 3. Lean MVP Step-by-Step Deployment (Fast & Ultra-Low-Cost)
+
+Deploy the entire platform on GCP in under 5 minutes without expensive networking overhead:
+
+### Step 1: Set Project & Enable Serverless APIs
 ```bash
-# 1. Login to Google Cloud via gcloud CLI
-gcloud auth login
-
-# 2. Set environment variables
 export PROJECT_ID="konnector-dentalos-prod"
 export REGION="us-central1"
-export ZONE="us-central1-a"
-export VPC_NAME="dentalos-vpc"
-export SUBNET_NAME="dentalos-subnet"
-export CONNECTOR_NAME="dentalos-vpc-conn"
 
-# 3. Create or set the project
 gcloud config set project $PROJECT_ID
-gcloud config set compute/region $REGION
-gcloud config set compute/zone $ZONE
 
-# 4. Enable required Google Cloud APIs
+# Enable only the minimal required serverless APIs
 gcloud services enable \
     run.googleapis.com \
-    compute.googleapis.com \
-    sqladmin.googleapis.com \
-    redis.googleapis.com \
-    vpcaccess.googleapis.com \
-    servicenetworking.googleapis.com \
     cloudbuild.googleapis.com \
     artifactregistry.googleapis.com \
     secretmanager.googleapis.com \
-    aiplatform.googleapis.com \
-    storage-component.googleapis.com \
-    pubsub.googleapis.com \
-    cloudkms.googleapis.com \
-    logging.googleapis.com \
-    monitoring.googleapis.com
+    aiplatform.googleapis.com
 ```
 
----
-
-### Step 2: VPC Networking & Private Services Access Setup
-
-For HIPAA compliance and zero-trust security, your database and Redis cache must never be exposed to the public internet.
-
+### Step 2: Configure Secrets in Secret Manager
 ```bash
-# 1. Create a custom VPC network
-gcloud compute networks create $VPC_NAME --subnet-mode=custom
-
-# 2. Create a primary subnet for resources
-gcloud compute networks subnets create $SUBNET_NAME \
-    --network=$VPC_NAME \
-    --region=$REGION \
-    --range=10.10.0.0/20
-
-# 3. Reserve an IP range for Google Private Services Access (Cloud SQL & Redis)
-gcloud compute addresses create dentalos-private-ip-alloc \
-    --global \
-    --purpose=VPC_PEERING \
-    --prefix-length=16 \
-    --network=$VPC_NAME
-
-# 4. Establish private connection peering
-gcloud services vpc-peerings connect \
-    --service=servicenetworking.googleapis.com \
-    --ranges=dentalos-private-ip-alloc \
-    --network=$VPC_NAME
-
-# 5. Create Serverless VPC Access Connector (allows Cloud Run to talk to Private IPs)
-gcloud compute networks vpc-access connectors create $CONNECTOR_NAME \
-    --region=$REGION \
-    --network=$VPC_NAME \
-    --range=10.10.16.0/28 \
-    --min-instances=2 \
-    --max-instances=10 \
-    --machine-type=e2-micro
-```
-
----
-
-### Step 3: Cloud SQL (PostgreSQL 15) High Availability Provisioning
-
-```bash
-# 1. Generate strong database password
-DB_PASSWORD=$(openssl rand -base64 24)
-
-# 2. Create High-Availability Cloud SQL PostgreSQL Instance (Private IP only)
-gcloud sql instances create dentalos-pg-prod \
-    --database-version=POSTGRES_15 \
-    --tier=db-custom-2-7680 \
-    --region=$REGION \
-    --network=projects/$PROJECT_ID/global/networks/$VPC_NAME \
-    --no-assign-ip \
-    --availability-type=REGIONAL \
-    --backup \
-    --backup-start-time=02:00 \
-    --enable-point-in-time-recovery \
-    --retained-backups-count=30 \
-    --storage-size=100GB \
-    --storage-auto-increase \
-    --maintenance-window-day=SUN \
-    --maintenance-window-hour=04
-
-# 3. Create production database
-gcloud sql databases create dentalos_db --instance=dentalos-pg-prod
-
-# 4. Create database user
-gcloud sql users create dental_admin \
-    --instance=dentalos-pg-prod \
-    --password=$DB_PASSWORD
-
-# 5. Fetch private IP of Cloud SQL instance
-DB_PRIVATE_IP=$(gcloud sql instances describe dentalos-pg-prod --format="value(ipAddresses[0].ipAddress)")
-echo "Cloud SQL Private IP: $DB_PRIVATE_IP"
-```
-
----
-
-### Step 4: Memorystore for Redis Provisioning
-
-```bash
-# Create Redis instance inside the private VPC for session caching and queues
-gcloud redis instances create dentalos-redis-prod \
-    --size=2 \
-    --region=$REGION \
-    --network=projects/$PROJECT_ID/global/networks/$VPC_NAME \
-    --redis-version=redis_7_0 \
-    --connect-mode=PRIVATE_SERVICE_ACCESS
-
-# Retrieve Redis Private IP
-REDIS_IP=$(gcloud redis instances describe dentalos-redis-prod --region=$REGION --format="value(host)")
-REDIS_PORT=$(gcloud redis instances describe dentalos-redis-prod --region=$REGION --format="value(port)")
-echo "Redis Endpoint: redis://$REDIS_IP:$REDIS_PORT"
-```
-
----
-
-### Step 5: Cloud Storage & Vertex AI Vector Search Setup
-
-```bash
-# 1. Create Cloud Storage Buckets (Encrypted, Multi-Region)
-gsutil mb -p $PROJECT_ID -c STANDARD -l $REGION -b on gs://dentalos-knowledge-docs-$PROJECT_ID
-gsutil mb -p $PROJECT_ID -c STANDARD -l $REGION -b on gs://dentalos-clinical-assets-$PROJECT_ID
-
-# Enforce Uniform Bucket-Level Access for security
-gsutil uniformbucketlevelaccess set on gs://dentalos-knowledge-docs-$PROJECT_ID
-gsutil uniformbucketlevelaccess set on gs://dentalos-clinical-assets-$PROJECT_ID
-
-# 2. Setup Vertex AI Vector Search Index (768 dimensions for text-embedding-004)
-cat <<EOF > index_metadata.json
-{
-  "contentsDeltaUri": "gs://dentalos-knowledge-docs-$PROJECT_ID/embeddings",
-  "config": {
-    "dimensions": 768,
-    "approximateNeighborsCount": 150,
-    "distanceMeasureType": "COSINE_DISTANCE",
-    "algorithm_config": {
-      "treeAhConfig": {
-        "leafNodeEmbeddingCount": 500,
-        "leafNodesToSearchPercent": 10
-      }
-    }
-  }
-}
-EOF
-
-gcloud ai indexes create \
-    --display-name="dentalos-clinical-rag-index" \
-    --description="Vector index for dental clinical protocols, pricing, and FAQs" \
-    --metadata-file=index_metadata.json \
-    --region=$REGION
-```
-
----
-
-### Step 6: Secret Manager Configuration
-
-Store sensitive API credentials directly in GCP Secret Manager:
-
-```bash
-# 1. Helper function to create secrets
-create_secret() {
-    SECRET_NAME=$1
-    SECRET_VALUE=$2
-    gcloud secrets create $SECRET_NAME --replication-policy="automatic" --quiet || true
-    echo -n "$SECRET_VALUE" | gcloud secrets versions add $SECRET_NAME --data-file=-
+# Helper function
+store_secret() {
+    gcloud secrets create $1 --replication-policy="automatic" --quiet || true
+    echo -n "$2" | gcloud secrets versions add $1 --data-file=-
 }
 
-# 2. Populate secrets
-DATABASE_URL_VAL="postgresql://dental_admin:${DB_PASSWORD}@${DB_PRIVATE_IP}:5432/dentalos_db?schema=public"
-create_secret "dentalos-database-url" "$DATABASE_URL_VAL"
-create_secret "dentalos-redis-url" "redis://${REDIS_IP}:${REDIS_PORT}"
-create_secret "dentalos-gemini-key" "AIzaSy_YOUR_GEMINI_API_KEY"
-create_secret "dentalos-whatsapp-token" "EAAG_YOUR_WHATSAPP_TOKEN"
-create_secret "dentalos-stripe-secret" "sk_live_YOUR_STRIPE_KEY"
-create_secret "dentalos-razorpay-secret" "YOUR_RAZORPAY_SECRET"
+# Add your credentials (free tiers)
+store_secret "dentalos-database-url" "postgresql://user:password@ep-cool-db.us-east-2.aws.neon.tech/dentalos?sslmode=require"
+store_secret "dentalos-gemini-key" "AIzaSy_YOUR_GEMINI_API_KEY"
+store_secret "dentalos-whatsapp-token" "EAAG_YOUR_WHATSAPP_TOKEN"
+store_secret "dentalos-stripe-secret" "sk_live_YOUR_STRIPE_KEY"
+store_secret "dentalos-razorpay-secret" "YOUR_RAZORPAY_SECRET"
 ```
 
----
-
-### Step 7: Artifact Registry & Cloud Build Deployment Pipeline
-
+### Step 3: Build & Deploy Container to Cloud Run (Scale-to-Zero)
 ```bash
-# 1. Create Docker repository in Artifact Registry
-gcloud artifacts repositories create dentalos-repo \
-    --repository-format=docker \
-    --location=$REGION \
-    --description="Docker repository for Konnector AI DentalOS"
-
-# 2. Build container image and push via Cloud Build
+# 1. Build container image via Cloud Build
 gcloud builds submit --config=cloudbuild.yaml .
-```
 
-The [`cloudbuild.yaml`](file:///c:/Users/kumarrajat/Konnector%20AI%20DentalOS/cloudbuild.yaml) file builds the multi-stage Docker container and registers the image in Artifact Registry.
-
----
-
-### Step 8: Cloud Run Production Deployment with VPC Egress & Secrets
-
-Deploy the container to Cloud Run with full private VPC connectivity, memory constraints, autoscaling, and secret injection:
-
-```bash
-# Deploy Konnector AI DentalOS to Cloud Run
+# 2. Deploy to Cloud Run with scale-to-zero ($0 idle cost)
 gcloud run deploy konnector-ai-dentalos \
     --image=gcr.io/$PROJECT_ID/konnector-ai-dentalos:latest \
     --region=$REGION \
     --platform=managed \
     --allow-unauthenticated \
     --port=3000 \
-    --min-instances=1 \
-    --max-instances=20 \
-    --memory=2Gi \
-    --cpu=2 \
+    --min-instances=0 \
+    --max-instances=5 \
+    --memory=1Gi \
+    --cpu=1 \
     --concurrency=80 \
-    --timeout=300 \
-    --vpc-connector=$CONNECTOR_NAME \
-    --vpc-egress=private-ranges-only \
-    --set-env-vars="NODE_ENV=production,PORT=3000,NEXT_PUBLIC_APP_URL=https://care.konnectordental.app,GCP_PROJECT_ID=$PROJECT_ID,GCP_REGION=$REGION" \
-    --set-secrets="DATABASE_URL=dentalos-database-url:latest,REDIS_URL=dentalos-redis-url:latest,GEMINI_API_KEY=dentalos-gemini-key:latest,WHATSAPP_CLOUD_API_ACCESS_TOKEN=dentalos-whatsapp-token:latest,STRIPE_SECRET_KEY=dentalos-stripe-secret:latest,RAZORPAY_KEY_SECRET=dentalos-razorpay-secret:latest"
+    --timeout=120 \
+    --set-env-vars="NODE_ENV=production,PORT=3000,NEXT_PUBLIC_APP_URL=https://care.konnectordental.app" \
+    --set-secrets="DATABASE_URL=dentalos-database-url:latest,GEMINI_API_KEY=dentalos-gemini-key:latest,WHATSAPP_CLOUD_API_ACCESS_TOKEN=dentalos-whatsapp-token:latest,STRIPE_SECRET_KEY=dentalos-stripe-secret:latest,RAZORPAY_KEY_SECRET=dentalos-razorpay-secret:latest"
 ```
 
----
-
-### Step 9: Cloud Load Balancing, Custom Domain & Managed SSL
-
-To expose your Cloud Run service via custom domain with Google-managed SSL and Cloud Armor:
-
+### Step 4: Map Custom Domain with Free Google SSL (Eliminates \$18/mo Load Balancer)
 ```bash
-# 1. Create Serverless Network Endpoint Group (NEG) for Cloud Run
-gcloud compute network-endpoint-groups create dentalos-serverless-neg \
-    --region=$REGION \
-    --network-endpoint-type=serverless \
-    --cloud-run-service=konnector-ai-dentalos
+# Map your custom domain directly to Cloud Run
+gcloud beta run domain-mappings create \
+    --service=konnector-ai-dentalos \
+    --domain=care.konnectordental.app \
+    --region=$REGION
 
-# 2. Create Backend Service
-gcloud compute backend-services create dentalos-backend-service \
-    --global \
-    --enable-cdn=false
-
-# Add NEG to backend service
-gcloud compute backend-services add-backend dentalos-backend-service \
-    --global \
-    --network-endpoint-group=dentalos-serverless-neg \
-    --network-endpoint-group-region=$REGION
-
-# 3. Create Cloud Armor Security Policy
-gcloud compute security-policies create dentalos-security-policy \
-    --description="Cloud Armor WAF for Konnector AI DentalOS"
-
-# Add rate-limiting rule (max 100 requests per minute per IP)
-gcloud compute security-policies rules create 1000 \
-    --security-policy=dentalos-security-policy \
-    --expression="true" \
-    --action="rate-based-ban" \
-    --rate-limit-threshold-count=100 \
-    --rate-limit-threshold-interval-sec=60 \
-    --ban-duration-sec=300 \
-    --conform-action="allow" \
-    --exceed-action="deny-429" \
-    --enforce-on-key="IP"
-
-# Attach policy to backend service
-gcloud compute backend-services update dentalos-backend-service \
-    --global \
-    --security-policy=dentalos-security-policy
-
-# 4. Create URL Map
-gcloud compute url-maps create dentalos-url-map \
-    --default-service=dentalos-backend-service
-
-# 5. Create Google-Managed SSL Certificate
-gcloud compute ssl-certificates create dentalos-ssl-cert \
-    --domains="care.konnectordental.app"
-
-# 6. Create HTTPS Target Proxy
-gcloud compute target-https-proxies create dentalos-https-proxy \
-    --url-map=dentalos-url-map \
-    --ssl-certificates=dentalos-ssl-cert
-
-# 7. Reserve Static Global IP Address
-gcloud compute addresses create dentalos-global-ip --global
-STATIC_IP=$(gcloud compute addresses describe dentalos-global-ip --global --format="value(address)")
-echo "Global Anycast IP for DNS A Record: $STATIC_IP"
-
-# 8. Create Global Forwarding Rule
-gcloud compute forwarding-rules create dentalos-https-rule \
-    --global \
-    --target-https-proxy=dentalos-https-proxy \
-    --ports=443 \
-    --address=dentalos-global-ip
+# This outputs DNS CNAME / A records. Add them to your DNS provider (Cloudflare/GoDaddy/Route53).
+# Google will automatically provision a free, auto-renewing SSL certificate within 15 minutes!
 ```
 
 ---
 
-## 🔒 4. Healthcare Compliance & Auditing Setup
+## 🛡️ 4. Pragmatic Healthcare Compliance (Zero Added Cost)
 
-### HIPAA Compliance (United States)
-1. **Business Associate Agreement (BAA)**: Sign the Google Cloud BAA within GCP Console ($\text{IAM \& Admin} \rightarrow \text{Privacy \& Security}$).
-2. **Encryption in Transit & At Rest**: All Cloud SQL instances, GCS buckets, and Redis nodes use AES-256 encryption.
-3. **Immutable Audit Trail**: Enable Cloud Audit Logs for Data Access:
-```bash
-# Export audit logs to dedicated secure long-term bucket
-gcloud logging sinks create dentalos-hipaa-sink \
-    storage.googleapis.com/dentalos-hipaa-audit-$PROJECT_ID \
-    --log-filter='protoPayload.serviceName="sqladmin.googleapis.com" OR protoPayload.serviceName="run.googleapis.com"'
-```
-
-### India DPDPA 2023 Compliance
-- Inbound patient communications require explicit digital consent before initiating dental marketing campaigns.
-- Patient health records and GST invoices (SAC 999312) are stored within GCP Mumbai/Delhi regions (`asia-south1` or `asia-south2`) if data localization is required.
+Instead of paying for expensive enterprise BAA lock-ins and dedicated HSM key infrastructure:
+1. **Encryption in Transit**: Enforced TLS 1.3 HTTPS via Cloud Run.
+2. **Encryption at Rest**: Standard AES-256 encryption provided automatically by PostgreSQL and GCP.
+3. **Explicit Digital Consent**: Patient intake forms and WhatsApp opt-ins require explicit digital consent checkmarks adhering to India DPDPA 2023 and US healthcare privacy guidelines.
+4. **Application Audit Trail**: All clinical record updates and staff logins are recorded in the application's internal `audit_logs` table (viewable at `/settings`), with zero external SIEM/Cloud Logging storage costs.
 
 ---
 
-## 📊 5. Production Health Monitoring & Alerting
+## 📈 5. Future Enterprise Scaling Path (When You Reach 500+ Clinics)
 
-Run these commands to establish Cloud Monitoring alerts:
-
-```bash
-# 1. Create alert for Cloud Run 5xx server errors
-gcloud monitoring channels create \
-    --display-name="Dental Practice DevOps Team" \
-    --type=email \
-    --channel-content='{"email_address": "devops@konnectordental.ai"}'
-
-# 2. View live Cloud Run logs in real-time
-gcloud logging tail "resource.type=cloud_run_revision AND resource.labels.service_name=konnector-ai-dentalos"
-```
-
----
-
-## 🚀 6. Verification Checklist
-
-- [x] Cloud Run serving production traffic on HTTPS (`200 OK`).
-- [x] Cloud SQL PostgreSQL accessible only over private VPC connector.
-- [x] Memorystore Redis accessible only over private VPC connector.
-- [x] Vertex AI Vector Search responding with cosine similarity $< 0.4$ distance for clinical queries.
-- [x] Cloud Armor WAF enabled with rate-limiting.
-- [x] Secret Manager injecting sensitive keys without filesystem leakage.
+When the business has grown to 500+ clinics and generates recurring SaaS revenue, you can seamlessly upgrade to the enterprise setup:
+- Add a **Cloud SQL HA Multi-Zone cluster** for enterprise failover.
+- Introduce **Global Cloud Load Balancing** and **Cloud Armor WAF**.
+- Provision **Serverless VPC Access** connectors for private internal subnet peering.
+- Migrate to **Vertex AI Vector Search endpoints** for datasets exceeding 1,000,000 document chunks.
