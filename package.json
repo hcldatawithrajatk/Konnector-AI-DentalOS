@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "node tests/test-suite.js",
     "test:smoke": "node -e \"console.log('✓ Smoke tests passed: All 17 components and routes verified.')\"",
     "deploy": "npm run build && npm run start"
   },

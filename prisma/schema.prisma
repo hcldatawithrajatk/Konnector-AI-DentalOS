@@ -1,0 +1,384 @@
+// =============================================================================
+// KONNECTOR AI DENTALOS — PRISMA ORM SCHEMA
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Clinic {
+  id                        String              @id @default(cuid())
+  name                      String
+  subdomain                 String?             @unique
+  customDomain              String?             @unique
+  logoUrl                   String?
+  primaryColor              String              @default("#0d9488")
+  secondaryColor            String              @default("#0f766e")
+  phone                     String
+  email                     String
+  address                   String
+  city                      String
+  state                     String
+  postalCode                String?
+  country                   String
+  region                    String              @default("IN") // IN or US
+  currency                  String              @default("INR") // INR or USD
+  timeZone                  String              @default("Asia/Kolkata")
+  googleReviewLink          String?
+  googlePlaceId             String?
+  whatsappPhoneNumberId    String?
+  whatsappBusinessAccountId String?
+  gstNumber                 String?
+  einTaxId                  String?
+  hipaaModeEnabled          Boolean             @default(true)
+  dpdpaModeEnabled          Boolean             @default(true)
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+
+  locations                 ClinicLocation[]
+  staff                     StaffUser[]
+  doctors                   Doctor[]
+  treatments                Treatment[]
+  patients                  Patient[]
+  appointments              Appointment[]
+  crmLeads                  CrmLead[]
+  smartQRCodes              SmartQRCode[]
+  payments                  PaymentTransaction[]
+  reviews                   ReviewFeedback[]
+  emergencies               EmergencyTriageCase[]
+  knowledgeDocs             KnowledgeDocument[]
+  workflows                 Workflow[]
+  auditLogs                 AuditLog[]
+
+  @@map("clinics")
+}
+
+model ClinicLocation {
+  id        String   @id @default(cuid())
+  clinicId  String
+  name      String
+  address   String
+  phone     String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  clinic    Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@map("clinic_locations")
+}
+
+model StaffUser {
+  id           String   @id @default(cuid())
+  clinicId     String
+  name         String
+  email        String   @unique
+  passwordHash String?
+  role         String
+  phone        String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  clinic       Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@map("staff_users")
+}
+
+model Doctor {
+  id                     String        @id @default(cuid())
+  clinicId               String
+  name                   String
+  specialization         String
+  qualification          String?
+  experienceYears        Int           @default(5)
+  bio                    String?
+  avatarUrl              String?
+  appointmentDurationMins Int          @default(30)
+  workingDays            String[]      @default(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"])
+  isActive               Boolean       @default(true)
+  createdAt              DateTime      @default(now())
+
+  clinic                 Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointments           Appointment[]
+  crmLeads               CrmLead[]
+  emergencies            EmergencyTriageCase[]
+
+  @@map("doctors")
+}
+
+model Treatment {
+  id               String        @id @default(cuid())
+  clinicId         String
+  category         String
+  name             String
+  description      String?
+  priceINR         Decimal       @default(0) @db.Decimal(12, 2)
+  priceUSD         Decimal       @default(0) @db.Decimal(12, 2)
+  insuranceCovered Boolean       @default(false)
+  sacCode          String?       @default("999312")
+  adaCode          String?
+  isHighValue      Boolean       @default(false)
+  durationMins     Int           @default(45)
+  createdAt        DateTime      @default(now())
+
+  clinic           Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointments     Appointment[]
+
+  @@map("treatments")
+}
+
+model Patient {
+  id                    String        @id @default(cuid())
+  clinicId              String
+  name                  String
+  phone                 String
+  email                 String?
+  dateOfBirth           DateTime?
+  gender                String?
+  address               String?
+  medicalHistory        String[]      @default([])
+  allergies             String[]      @default([])
+  currentMedications    String[]      @default([])
+  dentalConcern         String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  insuranceProvider     String?
+  insuranceMemberId     String?
+  digitalConsentSigned  Boolean       @default(false)
+  consentTimestamp      DateTime?
+  lastVisitDate         DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  clinic                Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointments          Appointment[]
+  crmLeads              CrmLead[]
+
+  @@map("patients")
+}
+
+model Appointment {
+  id               String    @id @default(cuid())
+  clinicId         String
+  patientId        String?
+  patientName      String
+  patientPhone     String
+  doctorId         String
+  treatmentId      String?
+  treatmentName    String
+  appointmentTime  DateTime
+  durationMins     Int       @default(30)
+  status           String    @default("scheduled")
+  source           String    @default("whatsapp_qr")
+  reminder48hSent  Boolean   @default(false)
+  reminder24hSent  Boolean   @default(false)
+  reminder2hSent   Boolean   @default(false)
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  clinic           Clinic    @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient          Patient?  @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  doctor           Doctor    @relation(fields: [doctorId], references: [id])
+  treatment        Treatment? @relation(fields: [treatmentId], references: [id], onDelete: SetNull)
+  payments         PaymentTransaction[]
+
+  @@map("appointments")
+}
+
+model CrmLead {
+  id                   String            @id @default(cuid())
+  clinicId             String
+  patientId            String?
+  name                 String
+  phone                String
+  email                String?
+  status               String            @default("new_lead")
+  source               String            @default("whatsapp_qr")
+  leadScore            Int               @default(50)
+  treatmentIntentScore Int               @default(50)
+  estimatedRevenue     Decimal           @default(0) @db.Decimal(12, 2)
+  primaryConcern       String?
+  assignedDoctorId     String?
+  assignedAiPersona    String?           @default("receptionist")
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  clinic               Clinic            @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient              Patient?          @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  doctor               Doctor?           @relation(fields: [assignedDoctorId], references: [id], onDelete: SetNull)
+  timeline             CrmLeadTimeline[]
+
+  @@map("crm_leads")
+}
+
+model CrmLeadTimeline {
+  id        String   @id @default(cuid())
+  leadId    String
+  clinicId  String
+  actor     String
+  action    String
+  metadata  Json?    @default("{}")
+  createdAt DateTime @default(now())
+
+  lead      CrmLead  @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@map("crm_lead_timeline")
+}
+
+model SmartQRCode {
+  id                 String         @id @default(cuid())
+  clinicId           String
+  type               String
+  title              String
+  subtitle           String?
+  ctaText            String?
+  targetRoute        String
+  totalScans         Int            @default(0)
+  totalConversions   Int            @default(0)
+  placementLocation  String?
+  customStyles       Json?          @default("{}")
+  isActive           Boolean        @default(true)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  clinic             Clinic         @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  scans              QrScanEvent[]
+
+  @@map("smart_qr_codes")
+}
+
+model QrScanEvent {
+  id          String      @id @default(cuid())
+  qrId        String
+  clinicId    String
+  ipAddress   String?
+  userAgent   String?
+  deviceType  String?
+  referrer    String?
+  scannedAt   DateTime    @default(now())
+  converted   Boolean     @default(false)
+  convertedAt DateTime?
+
+  qrCode      SmartQRCode @relation(fields: [qrId], references: [id], onDelete: Cascade)
+
+  @@map("qr_scan_events")
+}
+
+model PaymentTransaction {
+  id               String       @id @default(cuid())
+  clinicId         String
+  patientName      String
+  patientPhone     String?
+  appointmentId    String?
+  treatmentName    String
+  amount           Decimal      @db.Decimal(12, 2)
+  currency         String       @default("INR")
+  gateway          String
+  gatewayOrderId   String?
+  gatewayPaymentId String?
+  status           String       @default("completed")
+  gstSacCode       String?      @default("999312")
+  gstRatePercent   Decimal      @default(18.00) @db.Decimal(5, 2)
+  gstAmount        Decimal      @default(0) @db.Decimal(12, 2)
+  receiptUrl       String?
+  createdAt        DateTime     @default(now())
+
+  clinic           Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  appointment      Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  @@map("payment_transactions")
+}
+
+model ReviewFeedback {
+  id           String   @id @default(cuid())
+  clinicId     String
+  patientName  String
+  phone        String?
+  score        Int
+  feedbackText String?
+  destination  String
+  status       String   @default("Pending")
+  createdAt    DateTime @default(now())
+
+  clinic       Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@map("review_feedback")
+}
+
+model EmergencyTriageCase {
+  id                 String    @id @default(cuid())
+  clinicId           String
+  patientName        String
+  phone              String
+  symptoms           String[]
+  severityScore      Int
+  assignedDoctorName String?
+  assignedDoctorId   String?
+  status             String    @default("Urgent Triaged")
+  escalatedAt        DateTime  @default(now())
+
+  clinic             Clinic    @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  doctor             Doctor?   @relation(fields: [assignedDoctorId], references: [id], onDelete: SetNull)
+
+  @@map("emergency_triage_cases")
+}
+
+model KnowledgeDocument {
+  id            String   @id @default(cuid())
+  clinicId      String
+  title         String
+  category      String
+  fileType      String
+  fileSize      String?
+  snippet       String
+  fullContent   String?
+  tags          String[] @default([])
+  chunksCount   Int      @default(1)
+  vectorIndexed Boolean  @default(true)
+  lastUpdated   DateTime @default(now())
+
+  clinic        Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@map("knowledge_documents")
+}
+
+model Workflow {
+  id               String   @id @default(cuid())
+  clinicId         String
+  title            String
+  triggerType      String
+  description      String?
+  isActive         Boolean  @default(true)
+  totalExecutions  Int      @default(0)
+  nodes            Json     @default("[]")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  clinic           Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@map("workflows")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  clinicId  String
+  userId    String
+  userName  String
+  role      String
+  action    String
+  module    String
+  ipAddress String?
+  device    String?
+  details   String?
+  timestamp DateTime @default(now())
+
+  clinic    Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@map("audit_logs")
+}
